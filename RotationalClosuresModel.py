@@ -13,6 +13,31 @@ from matplotlib.colors import ListedColormap
 # e.g., pip install seaborn 
 # list of libraries: matplotlib, numpy, seaborn, joblib, scipy 
 
+
+'''
+Description:
+
+The code below simulates the dynamics of coral reefs, macroalgae, and herbivorous fish under
+static and rotational marine protected areas, using several different underlying ODE models of population dynamics.
+
+The creation of a Model object allows you to specify which of these underlying models to use, how many "patches" to
+divide the management area into, the average fraction of herbivorous fish that do not move from the patch they're in during a given timestep,
+and the management strategy (whether you're doing a static closure of a certain number of patches, or periodically closing some and opening others)
+
+There are a bunch of different functions for creating different types of plots with these underlying dynamics, including time series
+of the state variables, heatmaps of the final coral state as a function of period and number of patches closed with user-specified resolution, and maps 
+of the hysteresis range (i.e. the set of values for fishing intensity where two stable equilibria exist simultaneously, so that initial conditions
+determine which one the system arrives at)
+
+The code for the scenario plots and the heatmaps can run in parallel (you can specify how many cores to use in the function)
+I don't suggest trying to run anything larger than a 10x10 heatmap without parallelization though, it'll take a while
+
+Design for this code is ... not ideal... but hopefully you should only need to mess with the syntax of the calls in main(), parameter values
+in load_parameters(), though there are cases like num_cores where it's just hardcoded in the function. 
+feel free to reach out to me with questions (leemonroe20@gmail.com)
+'''
+
+
 class Model:
 	
 	# constructor for Model object
@@ -124,33 +149,23 @@ class Model:
 		periods = np.multiply(crts, multipliers)# [0.1*crt, 0.5*crt, 1*crt, 2*crt, 4*crt]  # parametrize in terms of coral growth time? 
 			
 		
-		# there is a cooler way to do colors than this 
 		# color_sequence = {periods[0]: '#1f77b4', periods[1]: '#aec7e8', periods[2]: '#ff7f0e', periods[3]:'#ffbb78', periods[4]:'#2ca02c'}
 		color_sequence = {periods[0]: '#fa0000', periods[1]: '#fa0092', periods[2]: '#cc00fa' , periods[3]:'#8500fa', periods[4]:'#1400fa'}
+
+
 		print("HERE WE GO")
 		print(self.closure_length)
 		MAX_TIME = len(t)
 
 		# this loops over each closure fraction 
 		def yield_loop_over_m_vals(self, t, period, fishing_intensity, IC_set, m):
-			# print("SCENARIO PLOT PERIOD IS ", period)
-			# set management parameters for this run  -- Divided by n in original??
+
+			# set management parameters for this run 
 			self.set_mgmt_params(period / self.n, fishing_intensity, m, self.poaching)
 			self.set_mgmt_params(period / self.n, fishing_intensity, m, self.poaching)
 			sol = odeint(patch_system, IC_set, t, args = (self, ))
 			avg = 0
-			# print(sol[MAX_TIME - 1])
-			
-			
 
-			#for j in range(self.n):
-				# result_yield = self.fishing_yield_from_history(t, sol[:, j])
-			#result_yield = self.fishing_yield_from_history(t, sol[:, 2])
-				# print(type(result_yield))
-			#for year in range(0, len(t)):
-			#	avg += result_yield[year]
-			total = 0 
-			print("SHOULD BE ZERO:" , total)
 			for j in range(self.n):
 				result_yield = self.fishing_yield_from_history(j, t, sol[:, j])
 				print("yield ")
@@ -177,6 +192,7 @@ class Model:
 		print("made it here")
 		final_coral = np.empty(self.n)
 		ms = np.empty(self.n)
+
 		for i, period in enumerate(periods):
 			# final_coral = np.empty(self.n)
 			print("FINAL CORAL AT START: ", final_coral)
@@ -192,7 +208,7 @@ class Model:
 			  print(res[0][1])
 			  print("RESULT ABVOE")
 			except ZeroDivisionError:
-			  print("divide by  zero ")
+			  print("division by zero in yield calculation function")
 			print("RAN RESULTS")
 			for j in range(self.n):
 			  ms[j] = res[j][0]
@@ -350,7 +366,10 @@ class Model:
 		# m_array = np.empty(int(self.n / 2))  # array of number of closures 
 		closure_lengths = np.empty(int(2/3*self.n))
 		ms = np.empty(int(2/3*self.n))
-		
+		 
+
+		# NOTE: this is really hacky and needs to be put elsewhere, but this is the function that gets run in parallel to 
+		# produce a heatmap of final coral for each run of the model 
 		def fill_heatmap_cell(self, t, recov_time, fishing_intensity, IC_set, closure_length, m):
 		  
 			this_closure_length = 0
@@ -365,16 +384,6 @@ class Model:
 			# average over coral cover of last two full rotations for a single patch 
 			avg = 0
 
-			'''
-			for year in range(MAX_TIME - MAX_TIME % self.closure_length - self.closure_length, MAX_TIME - MAX_TIME % self.closure_length):
-			  for j in range(self.n):
-			   avg += sol[year][self.n + j]
-			try:
-			  avg = avg / self.closure_length
-			except:
-			  print("division by zero !")
-			avg = avg / self.n
-			'''
 			print(len(t))
 			print(int(this_closure_length/recov_time))
 			
@@ -466,6 +475,8 @@ class Model:
 		# ax.plot_surface(ms, closure_lengths, coral_array,
 		#                 cmap='viridis', edgecolor='none')
 		crt = self.get_coral_recovery_time(t)
+
+
 		'''
 		if self.model_type == 'vdL':
 		  """ Plot isoclines """ 
@@ -486,6 +497,9 @@ class Model:
   	
 		  ax2.axvline(x=0.375, color = 'w', linestyle = '--')
 		'''
+
+
+
 		mako = ListedColormap(sb.color_palette('viridis').as_hex())
 		
 		# plot closure duration == recovery time line if coral is low 
@@ -691,146 +705,21 @@ class Model:
 
 		# this loops over each closure fraction 
 		def loop_over_m_vals(self, t, period, fishing_intensity, IC_set, m):
-			# print("SCENARIO PLOT PERIOD IS ", period)
+
 			# set management parameters for this run  -- Divided by n in original??
 			self.set_mgmt_params(period / self.n, fishing_intensity, m, self.poaching)
 			self.set_mgmt_params(period / self.n, fishing_intensity, m, self.poaching)
 			sol = odeint(patch_system, IC_set, t, args = (self, ))
 			avg = 0
 			# print(sol[MAX_TIME - 1])
-			
-			
 
-
-			""" multiple averaging methods below, tradeoffs between speed and accuracy -- this is the most likely source of bugs... """
-			'''
-			# fast averaging, only looks at a single patch and averages over last period
-			if self.frac_nomove == 0.99:
-			  if period / MAX_TIME < 0.5:
-  				for year in range(MAX_TIME - MAX_TIME % period - 2*period, 
-  					MAX_TIME - MAX_TIME % period):
-  					avg += sol[year][self.n]
-  				avg = avg / ((2*period) + 1)
-			  else:
-  			  # average over patches but not time
-  				for patch in range(self.n):
-  					avg += sol[MAX_TIME - MAX_TIME%period - 1][self.n + patch]
-  				avg = avg / self.n
-			else:
-			  for year in range(MAX_TIME - period, MAX_TIME):
-  			   avg += sol[year][self.n]
-			  avg = avg / period
-			  if avg < 0.2:
-			    print("what's happenin here?")
-			    print(sol[:])
-			'''
-			# added april 14 -- JUNE FIFTH NOTE, THIS IS USED FOR CURRENT HEATMAPS 
-			'''
-			if self.closure_length < 1:
-			  print("branch entered")
-			  self.closure_length = 1 
-			for year in range(int(MAX_TIME - (self.closure_length) - (MAX_TIME%((self.closure_length)))), int(MAX_TIME - (MAX_TIME%(int(self.closure_length))))):
-			  for j in range(self.n):
-			   avg += sol[year][self.n + j]
-			avg = avg / float(self.n)
-			avg = avg / float(self.closure_length)
-			print("The average is ", avg)
-			'''
-			# JUNE FIFTH VERSION, EDITED BELOW 
 			for year in range(MAX_TIME - 2*int(period)  - MAX_TIME % int(period), MAX_TIME - MAX_TIME % int(period)):
 			  for j in range(self.n):
 			   avg += sol[year][self.n + j]
 			avg = avg / (2*period)
 			avg = avg / self.n
       
-			'''
-			for year in range(MAX_TIME - period, MAX_TIME):
-			  avg += sol[year][self.n]
-			avg = avg / period
-			'''
-			'''
-			if avg < 0.2:
-			  print("what's happenin here?")
-			  print(sol[:])
-			'''
-			# trying this average bc it works for heatmap: (april 20)
-			'''
-			if period / MAX_TIME < 0.5:
-				for year in range(MAX_TIME - MAX_TIME % period - 2*period, 
-					MAX_TIME - MAX_TIME % period):
-					avg += sol[year][self.n]
-				avg = avg / ((2*period) + 1)
-			else:
-			  # average over patches but not time
-				for patch in range(self.n):
-					avg += sol[MAX_TIME - MAX_TIME%period - 1][self.n + patch]
-				avg = avg / self.n
-			'''
-			'''
-			for patchnum in range(self.n):
-				avg += sol[MAX_TIME-MAX_TIME % period][self.n + patchnum]
-			avg = avg / self.n
-			'''
-			# print("Average coral cover: ")
-			# print(avg)
-		  
 			
-			# slow averaging: averages over all patches over last complete cycle
-			'''
-			for patchnum in range(self.n):
-			  
-			  # avg += sol[int(MAX_TIME - MAX_TIME % period) - 1][self.n + patchnum] # -- alternatively, skip time averaging and just look at all patches at end of last cycle 
-			  # avg += sol[int(MAX_TIME - 1)][self.n + patchnum]
-			 
-			  for year in range(MAX_TIME - MAX_TIME % period - period, 
-          MAX_TIME - MAX_TIME % period):
-				
-				  avg += sol[year][self.n + patchnum]
-			avg = avg / (period+1)
-		
-			avg = avg / self.n
-			'''
-			
-			'''
-			# June 7 20:53 trying this average 
-			if period / MAX_TIME < 0.5:
-				for year in range(MAX_TIME - MAX_TIME % period - period, 
-					MAX_TIME - MAX_TIME % period):
-					avg += sol[year][self.n]
-				avg = avg / ((period) + 1)
-			else:
-			  # average over patches but not time
-				for patch in range(self.n):
-					avg += sol[MAX_TIME - 1][self.n + patch]
-				avg = avg / self.n
-			'''
-
-			# avg = avg / period
-			# avg = avg / self.n
-			
-			'''
-			# average over time but not patches 
-			if period / MAX_TIME < 0.5:
-				for year in range(MAX_TIME - MAX_TIME % period - period, 
-					MAX_TIME - MAX_TIME % period):
-					avg += sol[year][self.n]
-				avg = avg / ((period) + 1)
-			else:
-			  # average over patches but not time
-				for patch in range(self.n):
-					avg += sol[MAX_TIME - 1][self.n + patch]
-				avg = avg / self.n
-			'''
-			'''
-			# April 14 averaging- RB still looking weird
-			# no need to average over patches assuming symmetric behavior 
-			for year in range( MAX_TIME-MAX_TIME%period -2*period, MAX_TIME-MAX_TIME%period):
-			  # for patch in range(self.n):
-			  avg += sol[year][self.n]
-			# avg = avg / self.n
-			avg = avg / (2*period)
-	    '''
-	    
 			print("Average ",  m, "is ", avg, "when period is", period)
 			final_coral[m] = avg
 			ms[m] = m
@@ -1215,7 +1104,6 @@ def square_signal(t, closure_length, region, m, n, poaching, mgmt_strat = 'perio
 		# print("REGION NUM ", region)
 
 
-		""" CHECK POACHING IMPLEMENTATION: """
 		# if region is closed (between start region and end region, inclusive), then we only have poaching
 		if region >= start and region <= end:
 			return poaching
@@ -1236,7 +1124,6 @@ def square_signal(t, closure_length, region, m, n, poaching, mgmt_strat = 'perio
 			return (1 - (m / n) * poaching) / (1 - (m/n)) # open region 
 
 	
-#this signal function is not quite working yet 
 def sigmoid_signal(t, period, p):
 	if period == 0:
 		return 0
@@ -1263,19 +1150,6 @@ def blackwood(X, t, i, system_model, P_influx):
 	# return np.concatenate((dPs, dCs, dMs), axis=0)
 	return [dP, dC, dM]
 	
-	'''
-	P,C,M = X.reshape(3, system_model.n) # will reshaping work since we are passing arrays of length n? 
-	# dC = P_influx[i]+ system_model.s*P[i]*(1 - (P[i] / K(system_model.sigma,C[i]))) - fishing(P[i], system_model.f)*P[i] *(square_signal(t, system_model.closure_length, i, system_model.m, system_model.n, system_model.poaching))
-	dP = P_influx[i]+ system_model.s*P[i]*(1 - (P[i] / K(system_model.sigma,C[i]))) - system_model.f/(1-system_model.m/system_model.n)*P[i] *(square_signal(t, system_model.closure_length, i, system_model.m, system_model.n, system_model.poaching))
-	# need separtate K function for blackwood
-	# print(square_signal(t, system_model.closure_length, i, system_model.m, system_model.n, system_model.poaching))
-	dC = (system_model.r*C[i])*(1-M[i]-C[i]) - system_model.a*M[i]*C[i] - system_model.d*C[i] # recruitment needed?
-	
-	dM = (system_model.gamma*M[i])*(1-M[i]-C[i])-system_model.g(P[i])*(1/(1-C[i]))*M[i]
-
-
-	return [dP, dC, dM]
-	'''
 
 # will need to pass [self.P, self.C, self.M] to this for it to work 
 def leemput(X, t, i, system_model, P_influx): 
@@ -1294,6 +1168,19 @@ def leemput(X, t, i, system_model, P_influx):
 
 def main():
   
+  """
+  Define what plots to run here
+
+  refer to examples and function definitions for syntax
+
+  in general, a Model object needs to be created first to define which population dynamics equations to use
+
+  then the parameters need to be initialized with the initialize_model and load_parameters functions (not ideal but made this step separate for flexibility)
+
+
+  """
+
+
   print("Running Model...")
   
   # time 
@@ -1445,7 +1332,7 @@ def main():
   # van_de_leemput.scenario_plot(t, vdl_fishing_midpoint, ICs, filename = 'December5_FishGrowth0.5_vdL_FivePercentDispersal_StartingLow')
   ICs = van_de_leemput.X1
   van_de_leemput.yield_scenario_plot(t, vdl_fishing_midpoint, ICs, filename = 'YIELD_December30_FishGrowth0.5_vdL_FivePercentDispersal_StartingLow')
-  quit()
+  
   # FISH GROWTH RATE = 0.
   ICs = van_de_leemput.X1
   van_de_leemput.scenario_plot(t, vdl_fishing_midpoint, ICs, filename = 'December5_FishGrowth0.5_vdL_FivePercentDispersal_StartingLow')
@@ -1536,7 +1423,7 @@ def main():
   ICs = van_de_leemput.X2
   vdl_MP.scenario_plot(t, vdl_MP_fishing_midpoint, ICs, filename = 'December5_vdL_parrotfish_algae_FivePercentDispersal_StartingHigh')
 
-  quit()
+  
   
   '''
   rass_briggs.set_mgmt_params(2*RB_crt/12, RB_fishing_midpoint, 3, 0)
@@ -1634,7 +1521,7 @@ def main():
   rass_briggs.coral_recovery_map(t, RB_fishing_midpoint, rass_briggs.X1, filename = 'September28RB_HEATMAP_LOW')
   van_de_leemput.coral_recovery_map(t, vdl_fishing_midpoint, van_de_leemput.X2, filename = 'September28VDL_HEATMAP_HIGH')
   rass_briggs.coral_recovery_map(t, RB_fishing_midpoint, rass_briggs.X2, filename = 'September28RB_HEATMAP_HIGH')
-  quit()
+  
   # SCENARIO PLOTS 
   
   print("Generating scenario plots")
@@ -1771,7 +1658,7 @@ def main():
   
   
  
-  quit()
+  
   # 75 percent do not disperse
   blackwood_mumby = Model('BM', 12, 0.75, mgmt_strat = 'periodic') 
   van_de_leemput = Model('vdL', 12, 0.75, mgmt_strat = 'periodic')
@@ -1829,8 +1716,7 @@ def main():
   # blackwood_mumby.scenario_plot(t, BM_fishing_midpoint, ICs, filename = '12patchSeptember28_Apr25_BM_12patch_ScenarioPlot_98Dispersal_StartingHigh')
   
 
-  
-  # JUMP
+ 
 
   # create Model objects
   
